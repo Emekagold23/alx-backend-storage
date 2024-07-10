@@ -2,34 +2,54 @@
 -- computes and store the average weighted score for all students.
 DROP PROCEDURE IF EXISTS ComputeAverageWeightedScoreForUsers;
 DELIMITER $$
+
 CREATE PROCEDURE ComputeAverageWeightedScoreForUsers ()
 BEGIN
-    ALTER TABLE users ADD total_weighted_score INT NOT NULL;
-    ALTER TABLE users ADD total_weight INT NOT NULL;
+    DECLARE done INT DEFAULT 0;
+    DECLARE user_id INT;
+    DECLARE total_weighted_score DECIMAL(10, 2);
+    DECLARE total_weight DECIMAL(10, 2);
+    DECLARE cur CURSOR FOR SELECT id FROM users;
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
 
-    UPDATE users
-        SET total_weighted_score = (
-            SELECT SUM(corrections.score * projects.weight)
-            FROM corrections
-                INNER JOIN projects
-                    ON corrections.project_id = projects.id
-            WHERE corrections.user_id = users.id
-            );
+    -- Open the cursor
+    OPEN cur;
 
-    UPDATE users
-        SET total_weight = (
-            SELECT SUM(projects.weight)
-                FROM corrections
-                    INNER JOIN projects
-                        ON corrections.project_id = projects.id
-                WHERE corrections.user_id = users.id
-            );
+    -- Loop through all users
+    read_loop: LOOP
+        FETCH cur INTO user_id;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
 
-    UPDATE users
-        SET users.average_score = IF(users.total_weight = 0, 0, users.total_weighted_score / users.total_weight);
-    ALTER TABLE users
-        DROP COLUMN total_weighted_score;
-    ALTER TABLE users
-        DROP COLUMN total_weight;
+        -- Calculate total weighted score for the current user
+        SELECT SUM(corrections.score * projects.weight)
+        INTO total_weighted_score
+        FROM corrections
+        INNER JOIN projects ON corrections.project_id = projects.id
+        WHERE corrections.user_id = user_id;
+
+        -- Calculate total weight for the current user
+        SELECT SUM(projects.weight)
+        INTO total_weight
+        FROM corrections
+        INNER JOIN projects ON corrections.project_id = projects.id
+        WHERE corrections.user_id = user_id;
+
+        -- Compute and update the average weighted score for the current user
+        IF total_weight IS NULL OR total_weight = 0 THEN
+            UPDATE users
+            SET average_score = 0
+            WHERE id = user_id;
+        ELSE
+            UPDATE users
+            SET average_score = total_weighted_score / total_weight
+            WHERE id = user_id;
+        END IF;
+    END LOOP;
+
+    -- Close the cursor
+    CLOSE cur;
 END $$
+
 DELIMITER ;
