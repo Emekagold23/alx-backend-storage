@@ -1,0 +1,2 @@
+// Lists a MongoDB database.
+show dbs
