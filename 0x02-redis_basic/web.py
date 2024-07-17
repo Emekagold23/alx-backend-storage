@@ -1,39 +1,42 @@
 #!/usr/bin/env python3
-"""
-web cache and tracker
-"""
-import requests
+'''Web caching and tracking.
+'''
 import redis
+import requests
 from functools import wraps
+from typing import Callable
 
-# Redis client instance
-store = redis.Redis()
 
-def count_url_access(method):
-    """ Decorator counting how many times a URL is accessed """
+redis_store = redis.Redis()
+'''The module-level Redis instance.
+'''
+
+
+def data_cacher(method: Callable) -> Callable:
+    '''Caches the output of fetched data and tracks access counts.
+    '''
     @wraps(method)
-    def wrapper(url):
-        # Cache key for storing HTML content
-        cached_key = "cached:" + url
-        cached_data = store.get(cached_key)
-        if cached_data:
-            return cached_data.decode("utf-8")
+    def invoker(url) -> str:
+        '''The wrapper function for caching the output and tracking accesses.
+        '''
+        redis_store.incr(f'count:{url}')
+        result = redis_store.get(f'result:{url}')
+        if result:
+            return result.decode('utf-8')
+        result = method(url)
+        redis_store.setex(f'result:{url}', 10, result)
+        return result
+    return invoker
 
-        # Count key for tracking URL accesses
-        count_key = "count:" + url
 
-        # Call the actual method to get HTML content
-        html = method(url)
-
-        # Increment access count and cache HTML content
-        store.incr(count_key)
-        store.set(cached_key, html)
-        store.expire(cached_key, 10)  # Cache expires in 10 seconds
-        return html
-    return wrapper
-
-@count_url_access
+@data_cacher
 def get_page(url: str) -> str:
-    """ Returns HTML content of a URL """
-    res = requests.get(url)
-    return res.text
+    '''Returns the content of a URL after caching the request's response,
+    and tracking the request.
+    '''
+    return requests.get(url).text
+
+# Example usage
+if __name__ == "__main__":
+    url = "http://slowwly.robertomurray.co.uk"
+    print(get_page(url))
